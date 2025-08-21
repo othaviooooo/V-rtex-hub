@@ -1,0 +1,368 @@
+-- Vórtex Hub completo atualizado sem Tiro atravessa paredes
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Configurações
+local AimLockEnabled = false
+local WallhackEnabled = false
+local ESPLineEnabled = false
+local FOVEnabled = false
+local FOVRadius = 20
+
+-- ESP Drawing
+local DrawingAvailable, Drawing = pcall(function() return Drawing end)
+local espLines = {}
+local healthBars = {}
+local FOVCircle
+
+if DrawingAvailable then
+    FOVCircle = Drawing.new("Circle")
+    FOVCircle.Color = Color3.fromRGB(255,0,0)
+    FOVCircle.Thickness = 2
+    FOVCircle.Visible = false
+    FOVCircle.Radius = FOVRadius
+    FOVCircle.Filled = false
+end
+
+-- Funções auxiliares
+local function applyHighlight(char)
+    if not char:FindFirstChild("VortexHighlight") then
+        local hl = Instance.new("Highlight")
+        hl.Name = "VortexHighlight"
+        hl.FillColor = Color3.fromRGB(200,0,255)   -- roxo neon
+        hl.OutlineColor = Color3.fromRGB(200,0,255)
+        hl.FillTransparency = 0.5
+        hl.OutlineTransparency = 0
+        hl.Adornee = char
+        hl.Parent = char
+    end
+end
+
+local function GetLine(plr)
+    if not espLines[plr] then
+        local line = Drawing.new("Line")
+        line.Color = Color3.fromRGB(255,0,0)
+        line.Thickness = 2
+        line.Visible = true
+        espLines[plr] = line
+    end
+    return espLines[plr]
+end
+
+local function GetHealthBar(plr)
+    if not healthBars[plr] then
+        local bar = Drawing.new("Square")
+        bar.Color = Color3.fromRGB(0,255,0)
+        bar.Thickness = 0
+        bar.Filled = true
+        bar.Visible = true
+        healthBars[plr] = bar
+    end
+    return healthBars[plr]
+end
+
+local function ClearESP()
+    for _, line in pairs(espLines) do
+        line.Visible = false
+        pcall(function() line:Remove() end)
+    end
+    for _, bar in pairs(healthBars) do
+        bar.Visible = false
+        pcall(function() bar:Remove() end)
+    end
+    espLines = {}
+    healthBars = {}
+end
+
+local function IsInFOV(position)
+    local pos, onScreen = Camera:WorldToViewportPoint(position)
+    if onScreen and pos.Z > 0 then
+        local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+        local dist = (Vector2.new(pos.X,pos.Y) - center).Magnitude
+        return dist <= FOVRadius, Vector2.new(pos.X,pos.Y)
+    end
+    return false
+end
+
+local function GetClosestEnemyInFOV()
+    local closest = nil
+    local shortest = math.huge
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Team ~= LocalPlayer.Team and plr.Character 
+            and plr.Character:FindFirstChild("Humanoid") 
+            and plr.Character.Humanoid.Health > 0 then
+
+            local head = plr.Character:FindFirstChild("Head")
+            if head then
+                local inFOV, screenPos = IsInFOV(head.Position)
+                if (FOVEnabled and inFOV) or not FOVEnabled then
+                    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+                    local dist = (screenPos - center).Magnitude
+                    if dist < shortest then
+                        shortest = dist
+                        closest = head
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- Criação do Vórtex Hub
+local function CreateVortexHub()
+    if LocalPlayer.PlayerGui:FindFirstChild("VortexHub") then
+        LocalPlayer.PlayerGui.VortexHub:Destroy()
+    end
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "VortexHub"
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 250, 0, 280)
+    Frame.Position = UDim2.new(0, 50, 0, 100)
+    Frame.BackgroundColor3 = Color3.fromRGB(255,50,50) -- vermelho neon
+    Frame.Active = true
+    Frame.Draggable = true
+    Frame.Parent = ScreenGui
+
+    -- Cabeçalho
+    local Header = Instance.new("Frame")
+    Header.Size = UDim2.new(1,0,0,30)
+    Header.BackgroundColor3 = Color3.fromRGB(8,58,125)
+    Header.BorderSizePixel = 0
+    Header.Parent = Frame
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(0.7, -8, 1, 0)
+    Title.Position = UDim2.new(0,8,0,0)
+    Title.BackgroundTransparency = 1
+    Title.Text = "Vórtex Hub"
+    Title.Font = Enum.Font.GothamBold
+    Title.TextScaled = true
+    Title.TextColor3 = Color3.fromRGB(255,255,255)
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Parent = Header
+
+    local MinButton = Instance.new("TextButton")
+    MinButton.Size = UDim2.new(0.25, -8, 1, -6)
+    MinButton.Position = UDim2.new(0.75, 0, 0, 3)
+    MinButton.Text = "—"
+    MinButton.Font = Enum.Font.Gotham
+    MinButton.TextScaled = true
+    MinButton.TextColor3 = Color3.fromRGB(255,255,255)
+    MinButton.BackgroundColor3 = Color3.fromRGB(14,92,193)
+    MinButton.BorderSizePixel = 0
+    MinButton.Parent = Header
+
+    -- Container
+    local Content = Instance.new("Frame")
+    Content.Size = UDim2.new(1, 0, 1, -30)
+    Content.Position = UDim2.new(0, 0, 0, 30)
+    Content.BackgroundTransparency = 1
+    Content.Parent = Frame
+
+    local function makeButton(text, y)
+        local btn = Instance.new("TextButton", Content)
+        btn.Size = UDim2.new(0.92, 0, 0, 30)
+        btn.Position = UDim2.new(0.04, 0, 0, y)
+        btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        btn.TextColor3 = Color3.fromRGB(255,255,255)
+        btn.Font = Enum.Font.Gotham
+        btn.TextScaled = true
+        btn.Text = text
+        return btn
+    end
+
+    local AimButton = makeButton("Aimlock: OFF", 10)
+    local WHButton  = makeButton("Wallhack: OFF", 50)
+    local ESPLineButton = makeButton("ESP Linha: OFF", 90)
+    local FOVButton = makeButton("FOV: OFF", 130)
+
+    -- FOV com + e -
+    local FOVFrame = Instance.new("Frame")
+    FOVFrame.Size = UDim2.new(0.92,0,0,30)
+    FOVFrame.Position = UDim2.new(0.04,0,0,170)
+    FOVFrame.BackgroundColor3 = Color3.fromRGB(50,50,50)
+    FOVFrame.Parent = Content
+
+    local MinusButton = Instance.new("TextButton")
+    MinusButton.Size = UDim2.new(0.2,0,1,0)
+    MinusButton.Position = UDim2.new(0,0,0,0)
+    MinusButton.Text = "-"
+    MinusButton.TextScaled = true
+    MinusButton.Font = Enum.Font.Gotham
+    MinusButton.BackgroundColor3 = Color3.fromRGB(150,0,0)
+    MinusButton.TextColor3 = Color3.fromRGB(255,255,255)
+    MinusButton.Parent = FOVFrame
+
+    local FOVLabel = Instance.new("TextLabel")
+    FOVLabel.Size = UDim2.new(0.6,0,1,0)
+    FOVLabel.Position = UDim2.new(0.2,0,0,0)
+    FOVLabel.BackgroundTransparency = 1
+    FOVLabel.TextColor3 = Color3.fromRGB(255,255,255)
+    FOVLabel.TextScaled = true
+    FOVLabel.Font = Enum.Font.Gotham
+    FOVLabel.Text = tostring(FOVRadius)
+    FOVLabel.Parent = FOVFrame
+
+    local PlusButton = Instance.new("TextButton")
+    PlusButton.Size = UDim2.new(0.2,0,1,0)
+    PlusButton.Position = UDim2.new(0.8,0,0,0)
+    PlusButton.Text = "+"
+    PlusButton.TextScaled = true
+    PlusButton.Font = Enum.Font.Gotham
+    PlusButton.BackgroundColor3 = Color3.fromRGB(0,150,0)
+    PlusButton.TextColor3 = Color3.fromRGB(255,255,255)
+    PlusButton.Parent = FOVFrame
+
+    MinusButton.MouseButton1Click:Connect(function()
+        FOVRadius = math.clamp(FOVRadius - 1, 1, 50)
+        FOVLabel.Text = tostring(FOVRadius)
+    end)
+
+    PlusButton.MouseButton1Click:Connect(function()
+        FOVRadius = math.clamp(FOVRadius + 1, 1, 50)
+        FOVLabel.Text = tostring(FOVRadius)
+    end)
+
+    -- Minimizável
+    local MinimizedButton = Instance.new("TextButton")
+    MinimizedButton.Size = UDim2.new(0, 50, 0, 50)
+    MinimizedButton.Position = UDim2.new(0, 50, 0, 100)
+    MinimizedButton.BackgroundColor3 = Color3.fromRGB(255, 102, 0)
+    MinimizedButton.Text = "🍕"
+    MinimizedButton.Visible = false
+    MinimizedButton.TextScaled = true
+    MinimizedButton.Parent = ScreenGui
+
+    MinButton.MouseButton1Click:Connect(function()
+        Content.Visible = false
+        Frame.Visible = false
+        MinimizedButton.Visible = true
+    end)
+    MinimizedButton.MouseButton1Click:Connect(function()
+        Content.Visible = true
+        Frame.Visible = true
+        MinimizedButton.Visible = false
+    end)
+
+    -- Botões
+    AimButton.MouseButton1Click:Connect(function()
+        AimLockEnabled = not AimLockEnabled
+        AimButton.Text = "Aimlock: " .. (AimLockEnabled and "ON" or "OFF")
+    end)
+
+    WHButton.MouseButton1Click:Connect(function()
+        WallhackEnabled = not WallhackEnabled
+        WHButton.Text = "Wallhack: " .. (WallhackEnabled and "ON" or "OFF")
+    end)
+
+    ESPLineButton.MouseButton1Click:Connect(function()
+        ESPLineEnabled = not ESPLineEnabled
+        ESPLineButton.Text = "ESP Linha: " .. (ESPLineEnabled and "ON" or "OFF")
+    end)
+
+    FOVButton.MouseButton1Click:Connect(function()
+        FOVEnabled = not FOVEnabled
+        FOVButton.Text = "FOV: " .. (FOVEnabled and "ON" or "OFF")
+    end)
+end
+
+-- Inicializa
+CreateVortexHub()
+
+-- Respawn seguro
+LocalPlayer.CharacterAdded:Connect(function()
+    wait(0.5)
+    ClearESP()
+    CreateVortexHub()
+end)
+
+-- Limpa ESP ao morrer
+LocalPlayer.Character:WaitForChild("Humanoid").Died:Connect(function()
+    ClearESP()
+end)
+
+-- RenderStepped
+RunService.RenderStepped:Connect(function()
+    local topCenter = Vector2.new(Camera.ViewportSize.X/2, 0)
+    
+    -- FOV Circle
+    if FOVCircle then
+        local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+        FOVCircle.Position = center
+        FOVCircle.Visible = FOVEnabled
+        FOVCircle.Radius = FOVRadius
+    end
+
+    -- Aimlock
+    if AimLockEnabled then
+        local target = GetClosestEnemyInFOV()
+        if target then
+            local camPos = Camera.CFrame.Position
+            Camera.CFrame = CFrame.new(camPos, target.Position)
+        end
+    end
+
+    -- Wallhack
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hum = plr.Character:FindFirstChild("Humanoid")
+            if hum and hum.Health > 0 then
+                if WallhackEnabled then
+                    applyHighlight(plr.Character)
+                else
+                    if plr.Character:FindFirstChild("VortexHighlight") then
+                        plr.Character.VortexHighlight:Destroy()
+                    end
+                end
+            end
+        end
+    end
+
+    -- ESP Linha e barra de vida lateral
+    if DrawingAvailable and ESPLineEnabled then
+        for _, plr in pairs(Players:GetPlayers()) do
+            local line = GetLine(plr)
+            local healthBar = GetHealthBar(plr)
+            if plr ~= LocalPlayer and plr.Team ~= LocalPlayer.Team and plr.Character then
+                local hum = plr.Character:FindFirstChild("Humanoid")
+                local head = plr.Character:FindFirstChild("Head")
+                if hum and hum.Health > 0 and head then
+                    local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                    if onScreen and pos.Z > 0 then
+                        local screenX = math.clamp(pos.X, 0, Camera.ViewportSize.X)
+                        local screenY = math.clamp(pos.Y, 0, Camera.ViewportSize.Y)
+                        
+                        -- Linha do topo
+                        line.From = topCenter
+                        line.To = Vector2.new(screenX, screenY)
+                        line.Visible = true
+                        
+                        -- Barra vertical lateral
+                        local barWidth = 6
+                        local barHeight = 40
+                        local healthPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                        healthBar.Size = Vector2.new(barWidth, barHeight * healthPercent)
+                        healthBar.Position = Vector2.new(screenX + 15, screenY - barHeight/2)
+                        healthBar.Color = Color3.fromRGB(255 * (1 - healthPercent), 255 * healthPercent, 0)
+                        healthBar.Visible = true
+                    else
+                        line.Visible = false
+                        healthBar.Visible = false
+                    end
+                else
+                    line.Visible = false
+                    healthBar.Visible = false
+                end
+            else
+                line.Visible = false
+                healthBar.Visible = false
+            end
+        end
+    end
+end)
